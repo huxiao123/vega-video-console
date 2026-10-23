@@ -21,3 +21,9 @@ npm-debug.log*
 
 # Vite 缓存
 .vite/
+
+# EdgeOne 构建输出
+.edgeone/
+
+# IDE 项目数据
+.codebuddy/

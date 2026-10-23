@@ -4,7 +4,8 @@ import { handleRequest } from './vod.js'
 
 export default async function onRequest(context) {
   const request = context.request
-  const url = new URL(request.url)
+  // request.url 在 EdgeOne 运行时可能是相对路径（如 /api/task），需带 base 才能解析
+  const url = new URL(request.url, 'http://localhost')
   const headers = Object.fromEntries(request.headers.entries())
 
   const { status, data } = await handleRequest({

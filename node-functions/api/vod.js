@@ -1,7 +1,7 @@
 // Vega Video 控制台 - 共享核心（本地 server 与 EdgeOne Cloud Functions 复用）
 // 职责：TC3 签名、VOD API 转发、COS 上传、ExtInfo 封装、/api 路由分发
 // 无 http server / Web Request 依赖：只接收纯参数，返回 { status, data }
-import crypto from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 
 const HOST = 'vod.tencentcloudapi.com'
 const SERVICE = 'vod'
@@ -18,16 +18,16 @@ export function getCreds(headers = {}, env = {}) {
 
 // ---------- 加解密工具 ----------
 function sha256Hex(str) {
-  return crypto.createHash('sha256').update(str, 'utf8').digest('hex')
+  return createHash('sha256').update(str, 'utf8').digest('hex')
 }
 function hmacSha256(key, str) {
-  return crypto.createHmac('sha256', key).update(str, 'utf8').digest()
+  return createHmac('sha256', key).update(str, 'utf8').digest()
 }
 function sha1Hex(str) {
-  return crypto.createHash('sha1').update(str, 'utf8').digest('hex')
+  return createHash('sha1').update(str, 'utf8').digest('hex')
 }
 function hmacSha1(key, str) {
-  return crypto.createHmac('sha1', key).update(str, 'utf8').digest('hex')
+  return createHmac('sha1', key).update(str, 'utf8').digest('hex')
 }
 
 // TC3-HMAC-SHA256 签名
@@ -59,7 +59,7 @@ function sign(action, payload, secretId, secretKey, region) {
   const secretDate = hmacSha256(`TC3${secretKey}`, date)
   const secretService = hmacSha256(secretDate, SERVICE)
   const secretSigning = hmacSha256(secretService, 'tc3_request')
-  const signature = crypto.createHmac('sha256', secretSigning).update(stringToSign, 'utf8').digest('hex')
+  const signature = createHmac('sha256', secretSigning).update(stringToSign, 'utf8').digest('hex')
   const authorization =
     `${ALGO} Credential=${secretId}/${credentialScope}, ` +
     `SignedHeaders=${signedHeaders}, Signature=${signature}`
@@ -80,7 +80,6 @@ async function callVod(action, payload, secretId, secretKey, region) {
     method: 'POST',
     headers,
     body,
-    signal: AbortSignal.timeout(60000),
   })
   const text = await res.text()
   try { return JSON.parse(text) } catch { throw new Error('bad response: ' + text.slice(0, 500)) }
@@ -115,7 +114,6 @@ async function cosPut(secretId, secretKey, token, bucket, region, path, body) {
       'x-cos-security-token': token,
     },
     body,
-    signal: AbortSignal.timeout(180000),
   })
   const text = await res.text()
   if (res.status === 200) return text

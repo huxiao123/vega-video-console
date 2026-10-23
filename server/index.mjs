@@ -7,7 +7,7 @@ import http from 'node:http'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { handleRequest } from '../cloud-functions/api/vod.js'
+import { handleRequest } from '../node-functions/api/vod.js'
 
 const PORT = Number(process.env.PORT || 8088)
 
