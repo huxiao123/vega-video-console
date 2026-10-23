@@ -2,6 +2,7 @@
 // 职责：TC3 签名、VOD API 转发、COS 上传、ExtInfo 封装、/api 路由分发
 // 无 http server / Web Request 依赖：只接收纯参数，返回 { status, data }
 import { createHash, createHmac } from 'node:crypto'
+import https from 'node:https'
 
 const HOST = 'vod.tencentcloudapi.com'
 const SERVICE = 'vod'
@@ -76,13 +77,22 @@ function sign(action, payload, secretId, secretKey, region) {
 
 async function callVod(action, payload, secretId, secretKey, region) {
   const { body, headers } = sign(action, payload, secretId, secretKey, region)
-  const res = await fetch(`https://${HOST}/`, {
-    method: 'POST',
-    headers,
-    body,
+  // 用 node:https 而非全局 fetch：EdgeOne Node Functions 运行时 fetch 外网可能挂起
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      { hostname: HOST, method: 'POST', path: '/', headers, timeout: 25000 },
+      (res) => {
+        let data = ''
+        res.on('data', (c) => (data += c))
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)) } catch { reject(new Error('bad response: ' + data.slice(0, 500))) }
+        })
+      },
+    )
+    req.on('timeout', () => req.destroy(new Error('上游请求超时')))
+    req.on('error', reject)
+    req.end(body)
   })
-  const text = await res.text()
-  try { return JSON.parse(text) } catch { throw new Error('bad response: ' + text.slice(0, 500)) }
 }
 
 // ---------- COS 上传（HMAC-SHA1，临时密钥） ----------
@@ -104,20 +114,35 @@ function cosPutAuth(secretId, secretKey, host, path, contentLength) {
   return authorization
 }
 
-async function cosPut(secretId, secretKey, token, bucket, region, path, body) {
+function cosPut(secretId, secretKey, token, bucket, region, path, body) {
   const host = `${bucket}.cos.${region}.myqcloud.com`
   const authorization = cosPutAuth(secretId, secretKey, host, path, Buffer.byteLength(body))
-  const res = await fetch(`https://${host}${path}`, {
-    method: 'PUT',
-    headers: {
-      Authorization: authorization,
-      'x-cos-security-token': token,
-    },
-    body,
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: host,
+        method: 'PUT',
+        path,
+        headers: {
+          Authorization: authorization,
+          'x-cos-security-token': token,
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: 25000,
+      },
+      (res) => {
+        let d = ''
+        res.on('data', (c) => (d += c))
+        res.on('end', () => {
+          if (res.statusCode === 200) return resolve(d)
+          reject(new Error(`COS 上传失败 ${res.statusCode}: ${d.slice(0, 300)}`))
+        })
+      },
+    )
+    req.on('timeout', () => req.destroy(new Error('COS 上传超时')))
+    req.on('error', reject)
+    req.end(body)
   })
-  const text = await res.text()
-  if (res.status === 200) return text
-  throw new Error(`COS 上传失败 ${res.status}: ${text.slice(0, 300)}`)
 }
 
 function mediaTypeFrom(filename, assetType) {
